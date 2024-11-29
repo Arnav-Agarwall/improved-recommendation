@@ -57,10 +57,10 @@ def recommend_movies(movie_ratings, num_recommendations=10):
         movie_idx = movie_idx[0]
 
         # Calculate content and collaborative similarity for this movie
-        content_sim = cosine_similarity(content_matrix[movie_idx], content_matrix)
-        collaborative_sim = cosine_similarity(latent_factors[movie_idx].reshape(1, -1), latent_factors)
+        content_sim = cosine_similarity(content_matrix[movie_idx], content_matrix)  # shape (1, n_movies)
+        collaborative_sim = cosine_similarity(latent_factors[movie_idx].reshape(1, -1), latent_factors)  # shape (1, n_movies)
 
-        # Since cosine_similarity returns a 2D array, we flatten the result
+        # Flatten similarity results (from 2D to 1D arrays)
         content_sim = content_sim.flatten()
         collaborative_sim = collaborative_sim.flatten()
 
