@@ -58,12 +58,16 @@ def recommend_movies(movie_ratings, num_recommendations=10):
         movie_idx = movies_df[movies_df['original_title'].str.lower() == title].index
         if not movie_idx.empty:
             movie_idx = movie_idx[0]
-            # Get cosine similarity without converting to array
+
+            # Compute cosine similarity for content and collaborative filtering
             content_sim = cosine_similarity(content_matrix[movie_idx], content_matrix).flatten()
             collaborative_sim = cosine_similarity(latent_factors[movie_idx].reshape(1, -1), latent_factors).flatten()
 
-            # Ensure both similarity arrays are the same shape before adding
-            weighted_scores += rating * (content_sim + collaborative_sim)
+            # Ensure the similarity arrays have the same length
+            if len(content_sim) == len(collaborative_sim):
+                weighted_scores += rating * (content_sim + collaborative_sim)
+            else:
+                print(f"Shape mismatch: content_sim shape = {content_sim.shape}, collaborative_sim shape = {collaborative_sim.shape}")
 
     # Get top recommendations
     recommended_indices = np.argsort(weighted_scores)[::-1][:num_recommendations]
