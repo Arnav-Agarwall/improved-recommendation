@@ -61,6 +61,8 @@ def recommend_movies(movie_ratings, num_recommendations=10):
             # Get cosine similarity without converting to array
             content_sim = cosine_similarity(content_matrix[movie_idx], content_matrix).flatten()
             collaborative_sim = cosine_similarity(latent_factors[movie_idx].reshape(1, -1), latent_factors).flatten()
+
+            # Ensure both similarity arrays are the same shape before adding
             weighted_scores += rating * (content_sim + collaborative_sim)
 
     # Get top recommendations
