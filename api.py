@@ -57,8 +57,12 @@ def recommend_movies(movie_ratings, num_recommendations=10):
         movie_idx = movie_idx[0]
 
         # Calculate content and collaborative similarity for this movie
-        content_sim = cosine_similarity(content_matrix[movie_idx], content_matrix).toarray().flatten()
-        collaborative_sim = cosine_similarity(latent_factors[movie_idx].reshape(1, -1), latent_factors).flatten()
+        content_sim = cosine_similarity(content_matrix[movie_idx], content_matrix)
+        collaborative_sim = cosine_similarity(latent_factors[movie_idx].reshape(1, -1), latent_factors)
+
+        # Since cosine_similarity returns a 2D array, we flatten the result
+        content_sim = content_sim.flatten()
+        collaborative_sim = collaborative_sim.flatten()
 
         # Add the weighted content and collaborative similarities to the scores
         weighted_scores += rating * (content_sim + collaborative_sim)
