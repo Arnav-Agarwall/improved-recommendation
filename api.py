@@ -42,6 +42,7 @@ def recommend_movies(movie_ratings, num_recommendations=10):
     Returns:
         List of recommended movies or an error message.
     """
+    # Validate input
     input_movies = movies_df[movies_df['original_title'].str.lower().isin([title.lower() for title in movie_ratings.keys()])]
     if input_movies.empty:
         return None, "None of the input movies were found in the dataset."
@@ -57,7 +58,8 @@ def recommend_movies(movie_ratings, num_recommendations=10):
         movie_idx = movies_df[movies_df['original_title'].str.lower() == title].index
         if not movie_idx.empty:
             movie_idx = movie_idx[0]
-            content_sim = cosine_similarity(content_matrix[movie_idx], content_matrix).toarray().flatten()
+            # Get cosine similarity without converting to array
+            content_sim = cosine_similarity(content_matrix[movie_idx], content_matrix).flatten()
             collaborative_sim = cosine_similarity(latent_factors[movie_idx].reshape(1, -1), latent_factors).flatten()
             weighted_scores += rating * (content_sim + collaborative_sim)
 
