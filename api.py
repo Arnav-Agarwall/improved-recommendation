@@ -64,6 +64,10 @@ def recommend_movies(movie_ratings, num_recommendations=10):
         content_sim = content_sim.flatten()
         collaborative_sim = collaborative_sim.flatten()
 
+        # Check dimensions and make sure they match for addition
+        if content_sim.shape[0] != collaborative_sim.shape[0]:
+            continue  # Skip if dimensions don't match
+
         # Add the weighted content and collaborative similarities to the scores
         weighted_scores += rating * (content_sim + collaborative_sim)
 
