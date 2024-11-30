@@ -1,107 +1,102 @@
-import pandas as pd
-import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+import pandas as pd
+import ast
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.decomposition import TruncatedSVD
-from scipy.sparse import csr_matrix
-import os
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Enable CORS for all routes
 
-# Load and preprocess dataset
-movies_df = pd.read_csv("tmdb_5000_movies.csv", usecols=['id', 'original_title', 'vote_average', 'vote_count', 'genres', 'keywords'])
+# Step 1: Load Dataset
+movies_df = pd.read_csv('tmdb_5000_movies.csv')
 
-# Preprocess genres and keywords into "content" column
-movies_df['genres'] = movies_df['genres'].apply(lambda x: ' '.join(genre['name'] for genre in eval(x)) if pd.notnull(x) else '')
-movies_df['keywords'] = movies_df['keywords'].apply(lambda x: ' '.join(keyword['name'] for keyword in eval(x)) if pd.notnull(x) else '')
-movies_df['content'] = movies_df['genres'] + ' ' + movies_df['keywords']
+# Step 2: Data Preprocessing
+def extract_names(data):
+    try:
+        data = ast.literal_eval(data)  # Convert string to list of dictionaries
+        return [item['name'] for item in data]
+    except (ValueError, SyntaxError):
+        return []
 
-# Create TF-IDF matrix for content-based filtering
-tfidf = TfidfVectorizer(stop_words='english', max_features=1000)
-content_matrix = tfidf.fit_transform(movies_df['content'])
+movies_df['genres_processed'] = movies_df['genres'].apply(extract_names)
+movies_df['keywords_processed'] = movies_df['keywords'].apply(extract_names)
 
-# Collaborative filtering with SVD
-user_item_matrix = csr_matrix((movies_df['vote_average'], (movies_df['id'], range(len(movies_df)))), shape=(movies_df['id'].max() + 1, len(movies_df)))
-svd = TruncatedSVD(n_components=10)  # Reduce dimensions
-latent_factors = svd.fit_transform(user_item_matrix)
+movies_df['combined_features'] = (
+    movies_df['genres_processed'].apply(lambda x: ' '.join(x)) + ' ' +
+    movies_df['keywords_processed'].apply(lambda x: ' '.join(x)) + ' ' +
+    movies_df['overview'].fillna('')
+)
 
-# Recommendation function
-def recommend_movies(movie_ratings, num_recommendations=10):
-    """
-    Recommend movies based on user ratings.
-    Args:
-        movie_ratings: A dictionary of {movie_title: user_rating}.
-        num_recommendations: Number of recommendations to return.
-    Returns:
-        List of recommended movies or an error message.
-    """
-    # Normalize user ratings to a scale of 0-1
-    max_rating = max(movie_ratings.values())
-    min_rating = min(movie_ratings.values())
-    normalized_ratings = {title.lower(): (rating - min_rating) / (max_rating - min_rating) for title, rating in movie_ratings.items()}
+# Step 3: Vectorize Combined Features
+tfidf_vectorizer = TfidfVectorizer(stop_words='english')
+tfidf_matrix = tfidf_vectorizer.fit_transform(movies_df['combined_features'])
 
-    # Initialize weighted scores for each movie in the dataset
-    weighted_scores = np.zeros(len(movies_df))
+# Step 4: Compute Cosine Similarity
+cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
 
-    # Process each movie the user has rated
-    for title, rating in normalized_ratings.items():
-        # Find the index of the movie in the dataset
-        movie_idx = movies_df[movies_df['original_title'].str.lower() == title].index
-        if movie_idx.empty:
-            continue
-        
-        movie_idx = movie_idx[0]
+# Step 5: Define Recommendation Functions
+def recommend_movies(title, cosine_sim=cosine_sim):
+    try:
+        idx = movies_df[movies_df['title'].str.lower() == title.lower()].index[0]
+        sim_scores = list(enumerate(cosine_sim[idx]))
+        sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+        sim_indices = [i[0] for i in sim_scores[1:11]]
+        return movies_df['title'].iloc[sim_indices].tolist()
+    except IndexError:
+        return ["Movie not found. Please check the title."]
 
-        # Calculate content and collaborative similarity for this movie
-        content_sim = cosine_similarity(content_matrix[movie_idx], content_matrix)  # shape (1, n_movies)
-        collaborative_sim = cosine_similarity(latent_factors[movie_idx].reshape(1, -1), latent_factors)  # shape (1, n_movies)
+def recommend_based_on_ratings(user_ratings):
+    high_rated_movies = [movie for movie, rating in user_ratings if rating >= 4]
+    recommended_movies = set()
+    for movie in high_rated_movies:
+        recommended_movies.update(recommend_movies(movie))
+    rated_movies = {movie for movie, _ in user_ratings}
+    final_recommendations = recommended_movies - rated_movies
+    return list(final_recommendations)
 
-        # Flatten similarity results (from 2D to 1D arrays)
-        content_sim = content_sim.flatten()
-        collaborative_sim = collaborative_sim.flatten()
-
-        # Check dimensions and make sure they match for addition
-        if content_sim.shape[0] != collaborative_sim.shape[0]:
-            continue  # Skip if dimensions don't match
-
-        # Add the weighted content and collaborative similarities to the scores
-        weighted_scores += rating * (content_sim + collaborative_sim)
-
-    # Normalize scores to make sure no movie is left out
-    weighted_scores = weighted_scores / weighted_scores.max()
-
-    # Get top recommendations by sorting based on the weighted scores
-    recommended_indices = np.argsort(weighted_scores)[::-1][:num_recommendations]
-    recommendations = movies_df.iloc[recommended_indices]['original_title'].tolist()
-
-    return recommendations, None
-
-# Flask route for recommendations
+# API Endpoints
 @app.route('/recommend', methods=['POST'])
 def recommend():
-    try:
-        data = request.get_json()  # Get the JSON data from the POST request
-        movie_ratings = data.get("movie_ratings", {})
+    """
+    Recommend movies based on a single movie title.
+    Request format:
+    {
+        "title": "Movie Title"
+    }
+    """
+    data = request.get_json()
+    title = data.get('title')
+    if not title:
+        return jsonify({"error": "Please provide a movie title."}), 400
 
-        if not movie_ratings or not isinstance(movie_ratings, dict):
-            return jsonify({"error": "Invalid input. Expected a dictionary of movie ratings."}), 400
+    recommendations = recommend_movies(title)
+    return jsonify({"recommendations": recommendations})
 
-        # Call the recommendation function
-        recommendations, error = recommend_movies(movie_ratings)
+@app.route('/recommend_by_ratings', methods=['POST'])
+def recommend_by_ratings():
+    """
+    Recommend movies based on user ratings.
+    Request format:
+    {
+        "ratings": [
+            {"title": "Movie Title 1", "rating": 5},
+            {"title": "Movie Title 2", "rating": 3}
+        ]
+    }
+    """
+    data = request.get_json()
+    ratings = data.get('ratings')
+    if not ratings:
+        return jsonify({"error": "Please provide movie ratings."}), 400
 
-        if error:
-            return jsonify({"error": error}), 404
+    user_ratings = [(r['title'], r['rating']) for r in ratings]
+    recommendations = recommend_based_on_ratings(user_ratings)
+    return jsonify({"recommendations": recommendations})
 
-        return jsonify({"recommendations": recommendations}), 200
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# Run the Flask app
+# Run Flask App
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))  # Use port 10000 or any other available port
+    import os
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
